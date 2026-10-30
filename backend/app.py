@@ -10,7 +10,7 @@ from flask_apscheduler import APScheduler
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 
-load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 db = SQLAlchemy()
 scheduler = APScheduler()
 
@@ -138,15 +138,171 @@ def seat_conflict(seat_id, start, end, exclude_id=None):
         q = q.filter(Booking.id != exclude_id)
     return q.first()
 
+def expire_no_show_bookings(now=None, student_id=None):
+    now = now or local_now()
+    query = Booking.query.filter_by(status="RESERVED")
+    if student_id is not None:
+        query = query.filter_by(student_id=student_id)
+
+    expired = 0
+    for booking in query.all():
+        if now > aware(booking.start_at) + timedelta(minutes=GRACE_MINUTES):
+            booking.status = "CANCELLED"
+            notify(
+                booking.student_id,
+                "Reservation cancelled",
+                f"Your {booking.seat_id} reservation was cancelled because you did not check in within 15 minutes.",
+                "CANCELLED",
+            )
+            expired += 1
+    if expired:
+        db.session.commit()
+    return expired
+
+def _validated_authentication_method(method):
+    method = str(method or "").strip().upper()
+    if method not in {"MANUAL", "RFID", "FINGERPRINT", "WEB_DEMO"}:
+        return None
+    return method
+
+def check_in_student(student_id, method):
+    method = _validated_authentication_method(method)
+    if method is None:
+        return None, "Unsupported authentication method."
+
+    student_id = str(student_id or "").strip()
+    student = User.query.filter_by(student_id=student_id, role="student").first()
+    if not student:
+        return None, "Student not found."
+
+    now = local_now()
+    expire_no_show_bookings(now=now, student_id=student.student_id)
+
+    existing = Booking.query.filter(
+        Booking.student_id == student.student_id,
+        Booking.status.in_(["OCCUPIED", "OVERDUE"]),
+    ).order_by(Booking.end_at.asc()).first()
+    if existing:
+        return None, "Student is already checked in."
+
+    booking = Booking.query.filter_by(
+        student_id=student.student_id, status="RESERVED"
+    ).order_by(Booking.start_at.asc()).first()
+    if not booking:
+        return None, "No active reservation is available for check-in."
+    if now < aware(booking.start_at) or now > aware(booking.start_at) + timedelta(minutes=GRACE_MINUTES):
+        return None, "Check-in is allowed from the booking start until 15 minutes later."
+
+    seat = db.session.get(Seat, booking.seat_id)
+    if not seat or not seat.is_active:
+        return None, "This seat is currently unavailable."
+    other_occupant = Booking.query.filter(
+        Booking.seat_id == booking.seat_id,
+        Booking.id != booking.id,
+        Booking.status.in_(["OCCUPIED", "OVERDUE"]),
+    ).first()
+    if other_occupant:
+        return None, "This seat is still physically occupied. Please contact the library desk."
+
+    booking.status = "OCCUPIED"
+    booking.checked_in_at = now
+    db.session.add(AttendanceEvent(
+        student_id=student.student_id,
+        booking_id=booking.id,
+        event="ENTRY",
+        method=method,
+        result="SUCCESS",
+    ))
+    notify(student.student_id, "Check-in successful", f"You are checked in at seat {booking.seat_id}.", "ENTRY")
+    db.session.commit()
+    return booking, None
+
+def check_out_student(student_id, method):
+    method = _validated_authentication_method(method)
+    if method is None:
+        return None, "Unsupported authentication method."
+
+    student_id = str(student_id or "").strip()
+    student = User.query.filter_by(student_id=student_id, role="student").first()
+    if not student:
+        return None, "Student not found."
+
+    booking = Booking.query.filter(
+        Booking.student_id == student.student_id,
+        Booking.status.in_(["OCCUPIED", "OVERDUE"]),
+    ).order_by(Booking.end_at.asc()).first()
+    if not booking:
+        return None, "No occupied booking was found for this student."
+
+    booking.status = "COMPLETED"
+    booking.checked_out_at = local_now()
+    db.session.add(AttendanceEvent(
+        student_id=student.student_id,
+        booking_id=booking.id,
+        event="EXIT",
+        method=method,
+        result="SUCCESS",
+    ))
+    notify(student.student_id, "Exit recorded", f"Seat {booking.seat_id} is now available.", "EXIT")
+    db.session.commit()
+    return booking, None
+
+def get_student_status(student_id):
+    student_id = str(student_id or "").strip()
+    student = User.query.filter_by(student_id=student_id, role="student").first()
+    if not student:
+        return None
+
+    now = local_now()
+    expire_no_show_bookings(now=now, student_id=student.student_id)
+    booking = Booking.query.filter(
+        Booking.student_id == student.student_id,
+        Booking.status.in_(["OCCUPIED", "OVERDUE"]),
+    ).order_by(Booking.end_at.asc()).first()
+    if not booking:
+        booking = Booking.query.filter_by(
+            student_id=student.student_id, status="RESERVED"
+        ).order_by(Booking.start_at.asc()).first()
+    return {
+        "student_id": student.student_id,
+        "name": student.name,
+        "status": booking.status if booking else "NO ACTIVE BOOKING",
+        "seat_id": booking.seat_id if booking else None,
+        "booking": booking_dict(booking) if booking else None,
+    }
+
+def get_registered_students():
+    return [
+        {"student_id": student.student_id, "name": student.name}
+        for student in User.query.filter_by(role="student").order_by(User.student_id).all()
+    ]
+
+def get_all_seat_status(start=None, end=None):
+    now = local_now()
+    expire_no_show_bookings(now=now)
+    start = start or now
+    end = end or start + timedelta(minutes=1)
+
+    result = []
+    for seat in Seat.query.order_by(Seat.id).all():
+        conflict = seat_conflict(seat.id, start, end)
+        current = Booking.query.filter(
+            Booking.seat_id == seat.id,
+            Booking.status.in_(["OCCUPIED", "OVERDUE"]),
+            Booking.start_at <= now,
+        ).order_by(Booking.start_at.asc()).first()
+        result.append({
+            "seat_id": seat.id,
+            "is_active": seat.is_active,
+            "status": "UNAVAILABLE" if not seat.is_active else
+                      ("OCCUPIED" if current else ("RESERVED" if conflict else "AVAILABLE")),
+            "booking": booking_dict(conflict) if conflict else None,
+        })
+    return result
+
 def run_booking_jobs():
     now = local_now()
-    changed = False
-    # A reservation expires at the exact end of its 15-minute check-in window.
-    for b in Booking.query.filter_by(status="RESERVED").all():
-        if now > aware(b.start_at) + timedelta(minutes=GRACE_MINUTES):
-            b.status = "CANCELLED"
-            notify(b.student_id, "Reservation cancelled", f"Your {b.seat_id} reservation was cancelled because you did not check in within 15 minutes.", "CANCELLED")
-            changed = True
+    changed = expire_no_show_bookings(now=now) > 0
     # Remind checked-in students 15 minutes before their current end time.
     for b in Booking.query.filter(Booking.status == "OCCUPIED", Booking.renewal_notice_sent.is_(False)).all():
         if aware(b.end_at) - timedelta(minutes=RENEWAL_NOTICE_MINUTES) <= now < aware(b.end_at):
@@ -220,21 +376,7 @@ def create_app():
         start_s, end_s = request.args.get("start"), request.args.get("end")
         start = parse_local(start_s) if start_s else local_now()
         end = parse_local(end_s) if end_s else start + timedelta(minutes=1)
-        result = []
-        for seat in Seat.query.order_by(Seat.id).all():
-            conflict = seat_conflict(seat.id, start, end)
-            current = Booking.query.filter(
-                Booking.seat_id == seat.id,
-                Booking.status.in_(["OCCUPIED", "OVERDUE"]),
-                Booking.start_at <= local_now()
-            ).first()
-            result.append({
-                "seat_id": seat.id, "is_active": seat.is_active,
-                "status": "UNAVAILABLE" if not seat.is_active else
-                          ("OCCUPIED" if current else ("RESERVED" if conflict else "AVAILABLE")),
-                "booking": booking_dict(conflict) if conflict else None
-            })
-        return jsonify(seats=result, server_time=iso(local_now()))
+        return jsonify(seats=get_all_seat_status(start, end), server_time=iso(local_now()))
 
     @app.get("/api/bookings")
     @login_required
@@ -291,45 +433,11 @@ def create_app():
         db.session.commit()
         return jsonify(ok=True)
 
-    def perform_checkin(user, method):
-        now = local_now()
-        b = Booking.query.filter_by(student_id=user.student_id, status="RESERVED").order_by(Booking.start_at).first()
-        if not b:
-            return None, "No active reservation is available for check-in."
-        if now < aware(b.start_at) or now > aware(b.start_at) + timedelta(minutes=GRACE_MINUTES):
-            return None, "Check-in is allowed from the booking start until 15 minutes later."
-        other_occupant = Booking.query.filter(
-            Booking.seat_id == b.seat_id,
-            Booking.student_id != user.student_id,
-            Booking.status.in_(["OCCUPIED", "OVERDUE"])
-        ).first()
-        if other_occupant:
-            return None, "This seat is still physically occupied. Please contact the library desk."
-        b.status = "OCCUPIED"
-        b.checked_in_at = now
-        db.session.add(AttendanceEvent(student_id=user.student_id, booking_id=b.id, event="ENTRY", method=method, result="SUCCESS"))
-        notify(user.student_id, "Check-in successful", f"You are checked in at seat {b.seat_id}.", "ENTRY")
-        db.session.commit()
-        return b, None
-
-    def perform_checkout(user, method):
-        b = Booking.query.filter_by(student_id=user.student_id, status="OCCUPIED").order_by(Booking.end_at).first()
-        if not b:
-            b = Booking.query.filter_by(student_id=user.student_id, status="OVERDUE").order_by(Booking.end_at).first()
-        if not b:
-            return None, "No occupied booking was found for this student."
-        b.status = "COMPLETED"
-        b.checked_out_at = local_now()
-        db.session.add(AttendanceEvent(student_id=user.student_id, booking_id=b.id, event="EXIT", method=method, result="SUCCESS"))
-        notify(user.student_id, "Exit recorded", f"Seat {b.seat_id} is now available.", "EXIT")
-        db.session.commit()
-        return b, None
-
     @app.post("/api/checkin")
     @login_required
     def checkin():
         u = current_user()
-        b, error = perform_checkin(u, "WEB_DEMO")
+        b, error = check_in_student(u.student_id, "WEB_DEMO")
         if error: return api_error(error, 409)
         return jsonify(message="Check-in successful.", booking=booking_dict(b))
 
@@ -337,7 +445,7 @@ def create_app():
     @login_required
     def checkout():
         u = current_user()
-        b, error = perform_checkout(u, "WEB_DEMO")
+        b, error = check_out_student(u.student_id, "WEB_DEMO")
         if error: return api_error(error, 409)
         return jsonify(message="Exit recorded. Seat released.", booking=booking_dict(b))
 
@@ -438,16 +546,15 @@ def create_app():
         credential = str(data.get("credential", "")).strip()
         if method not in ["RFID", "FINGERPRINT"] or not credential:
             return api_error("Provide method RFID/FINGERPRINT and credential.")
-        user = User.query.filter_by(rfid_uid=credential).first() if method == "RFID" else User.query.filter_by(fingerprint_id=credential).first()
+        user = User.query.filter_by(rfid_uid=credential, role="student").first() if method == "RFID" else User.query.filter_by(fingerprint_id=credential, role="student").first()
         if not user:
             return api_error("Credential is not registered.", 404)
-        occupied = Booking.query.filter_by(student_id=user.student_id, status="OCCUPIED").first()
-        overdue = Booking.query.filter_by(student_id=user.student_id, status="OVERDUE").first()
-        if occupied or overdue:
-            b, error = perform_checkout(user, method)
+        student_status = get_student_status(user.student_id)
+        if student_status["status"] in ["OCCUPIED", "OVERDUE"]:
+            b, error = check_out_student(user.student_id, method)
             action = "EXIT"
         else:
-            b, error = perform_checkin(user, method)
+            b, error = check_in_student(user.student_id, method)
             action = "ENTRY"
         if error:
             db.session.add(AttendanceEvent(student_id=user.student_id, event="SCAN", method=method, result="REJECTED"))

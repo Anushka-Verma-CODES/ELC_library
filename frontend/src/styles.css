@@ -39,3 +39,36 @@ input:focus,select:focus,textarea:focus{outline:2px solid #8092a5;outline-offset
 :focus-visible{outline:2px solid #607c99;outline-offset:2px}
 :root{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 .brand,.page-heading h1,.stat-card strong,.card-head h3,.booking-form-card h3,.seat-tile b,.renewal-copy h3,.utilization strong,.login-message h1,.login-card h2,.mobile-brand{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.login-shell{display:grid;grid-template-columns:1fr;place-items:center;min-height:100vh;padding:24px;background:#f7f8fa}
+.login-card{width:min(380px,100%);padding:28px;background:#fff;border:1px solid var(--line);border-radius:8px}
+.login-card h1{margin:0;font-size:24px}
+.login-card>p{margin:0}
+.page-heading{margin-bottom:20px}
+.page-heading h1{margin:0;font-size:26px}
+.simple-status-card{max-width:680px;padding:24px}
+.simple-status-head{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.simple-label{font-size:11px;font-weight:700;color:var(--muted)}
+.simple-status-head h2{margin:6px 0 0;font-size:24px}
+.simple-state{font-size:30px!important}
+.simple-state.reserved,.simple-stat.reserved strong{color:#805f19}
+.simple-state.occupied,.simple-stat.available strong{color:#28734c}
+.simple-state.overdue,.simple-stat.overdue strong{color:#a3423d}
+.simple-stat.occupied strong{color:#425c78}
+.booking-hint{margin:0;color:var(--muted);font-size:13px}
+.status-large{font-size:12px;padding:9px 12px}
+.status-large.reserved{color:#805f19;background:#f8f2e5}
+.status-large.occupied{color:#28734c;background:#eaf3ed}
+.status-large.overdue{color:#a3423d;background:#f7eceb}
+.status-large.gray{color:#65717d;background:#eff1f3}
+.simple-booking-details{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin:24px 0}
+.simple-booking-details>div{display:grid;gap:6px}
+.simple-booking-details span{font-size:10px;color:var(--muted)}
+.simple-booking-details strong{font-size:15px}
+.simple-availability{max-width:680px;margin-top:16px;padding:14px 0;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}
+.simple-availability strong{font-size:18px}
+.simple-admin-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.simple-stat{min-height:96px;display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between}
+.simple-stat strong{font-size:28px}
+.admin-total{max-width:680px;margin-top:16px;display:flex;align-items:center;justify-content:space-between}
+.admin-total h2{margin:5px 0 0;font-size:24px}
+@media(max-width:600px){.simple-admin-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.simple-status-card{padding:18px}.simple-booking-details{gap:10px}.simple-booking-details strong{font-size:13px}.login-card{padding:22px}}

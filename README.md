@@ -78,6 +78,30 @@ python app.py
 
 Backend runs at `http://localhost:5000`. SQLite database is created automatically at first run.
 
+## Manual entry/exit simulation
+
+Keep Flask running, then open a second terminal and run the manual command loop from the backend directory:
+
+```powershell
+cd backend
+python manual_commands.py
+```
+
+Use `LIST STUDENTS` to display registered student IDs and use one of those IDs:
+
+```text
+LIBRARY > LIST STUDENTS
+LIBRARY > ENTER <student_id>
+LIBRARY > STATUS <student_id>
+LIBRARY > EXIT <student_id>
+```
+
+The terminal uses the same booking services and SQLite database as the React API and RFID/fingerprint scans. It does not expose a manual HTTP endpoint. Type `HELP` for commands or `QUIT` to exit. To run the included backend tests:
+
+```powershell
+python -m unittest discover -s tests -v
+```
+
 ## Run the React frontend
 
 Open a second terminal:
