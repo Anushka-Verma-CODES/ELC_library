@@ -1,0 +1,104 @@
+
+# ==============================
+# ENVIRONMENT VARIABLES & SECRETS
+# ==============================
+.env
+.env.*
+!.env.example
+!.env.template
+
+# ==============================
+# PYTHON / FLASK BACKEND
+# ==============================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+venv/
+env/
+flaskVenv/
+.venv/
+
+# Python packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Flask instance and database
+instance/
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# ==============================
+# NODE / REACT FRONTEND
+# ==============================
+node_modules/
+frontend/node_modules/
+
+# Build outputs
+dist/
+build/
+frontend/dist/
+
+# Vite
+frontend/.vite/
+
+# Package manager logs
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# ==============================
+# IDE / EDITOR
+# ==============================
+.vscode/
+.idea/
+*.suo
+*.user
+*.swp
+*.swo
+
+# ==============================
+# OPERATING SYSTEM
+# ==============================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ==============================
+# TESTING & COVERAGE
+# ==============================
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+.nox/
+
+# ==============================
+# TEMPORARY FILES
+# ==============================
+*.tmp
+*.bak
+*.old
+*.orig
+
+# ==============================
+# HARDWARE / SERIAL
+# ==============================
+*.hex
+*.elf
+*.bin
+*.o
+
+# ==============================
+# LOCAL CONFIGURATION
+# ==============================
+*.local
